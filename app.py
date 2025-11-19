@@ -7,6 +7,7 @@ import plotly.express as px        # 인터랙티브 차트
 import plotly.graph_objects as go  # 커스텀 plotly 차트
 import os
 import warnings
+from pydantic import BaseModel, Field
 
 # 경고 메시지 숨김
 warnings.filterwarnings('ignore')
@@ -888,4 +889,5 @@ st.markdown("""
         Powered by PhysioNet Data + Machine Learning + LangChain AI
     </p>
 </div>
+
 """, unsafe_allow_html=True)                    
