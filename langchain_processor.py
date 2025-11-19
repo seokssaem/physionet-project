@@ -9,18 +9,14 @@ import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
 
-# LangChain 라이브러리 (선택적 임포트)
-try:
-    from langchain_openai import ChatOpenAI
-    from langchain.schema import HumanMessage, SystemMessage
-    from langchain_openai import ChatOpenAI
+# LangChain 라이브러리
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
 
-    from pydantic import BaseModel, Field
-    LANGCHAIN_AVAILABLE = True
-    print("✅ LangChain 라이브러리 로드 성공")
-except ImportError:
-    print("⚠️ LangChain 라이브러리가 설치되지 않았습니다. 기본 분석 기능만 사용됩니다.")
-    LANGCHAIN_AVAILABLE = False
+from pydantic import BaseModel, Field
+LANGCHAIN_AVAILABLE = True
+print("✅ LangChain 라이브러리 로드 성공")
+
 
 load_dotenv(override=True)
 print("✅ 환경 변수 로드 완료")
@@ -64,6 +60,9 @@ class LangChainBPProcessor:
     - Strategy Pattern: AI/전통적 알고리즘 선택적 사용
     - Graceful Degradation: AI 실패 시 기본 기능 제공
     """
+    # ============================================================
+    # 3-1. 생성자
+    # ============================================================    
     def __init__(self, api_key: Optional[str] = None):
         """
         LangChain 처리기 초기화
@@ -78,44 +77,48 @@ class LangChainBPProcessor:
         2. ChatOpenAI 객체 생성
         3. 연결 테스트
         """
-        # API 키 우선순위 : 매개변수(인자) > 환경 변수
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.llm = None  # LLM 객체 초기화
-
-        # LangChain 사용 가능하고 API키가 있는 경우
+        # API 키 우선순위: 인자 > 환경변수
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+        self.llm = None  # LLM 객체 초기값
+        
+        # LangChain이 사용 가능하고 API 키가 있는 경우
         if LANGCHAIN_AVAILABLE and self.api_key:
             try:
-               # ChatOpenAI 초기화
-               self.llm = ChatOpenAI(
-                   model='gpt-4o-mini',
-                   temperature=0.1,
-                   api_key=self.api_key
-               )
-               print('LangChain AI 시스템 초기화 완료!')
+                # ChatOpenAI 초기화
+                self.llm = ChatOpenAI(
+                    model="gpt-4o-mini",  # 사용 모델
+                    temperature=0.1,  # 낮은 값 = 일관성 높음 (0~1)
+                    api_key=self.api_key
+                )
+                print("✅ LangChain AI 시스템 초기화 완료")
             except Exception as e:
-                print(f'⚠️ OpenAI API 연결 실패: {e}')
+                print(f"⚠️ OpenAI API 연결 실패: {e}")
                 self.llm = None
         else:
             if not self.api_key:
-                print('OpenAI API 키가 없습니다. .env 파일에 OEPNAI_API_KEY를 설정하세요.')
-    
+                print("⚠️ OpenAI API 키가 없습니다. .env 파일에 OPENAI_API_KEY를 설정하세요.")
+        # ============================================================
+    # 3-2. 개별 환자의 ai 종합 분석
+    # ============================================================
     def analyze_individual_bp(self, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """개별 환자의 혈압 및 건강 데이터를 AI로 종합 분석"""
-
+        
         if not self.llm:
             return self._fallback_individual_analysis(patient_data)
         
         try:
-            # structured output format을 지원하는 모델로 설정
+            # Structured Output을 지원하는 모델로 변경
+            
+            
             structured_llm = ChatOpenAI(
-                model='gpt-4o-mini',
+                model="gpt-4o-mini",  # 또는 "gpt-4o-2024-08-06"
                 temperature=0.1,
                 api_key=self.api_key
             ).with_structured_output(BloodPressureInsight)
-
+            
             # 프롬프트 생성
             patient_info = self._format_patient_info(patient_data)
-
+            
             messages = [
                 SystemMessage(content="""당신은 심혈관 질환 전문의입니다.
     환자의 혈압 및 관련 데이터를 종합적으로 분석하여 전문적인 의학적 조언을 제공합니다.
@@ -129,10 +132,10 @@ class LangChainBPProcessor:
     ⚠️ 주의: 이는 교육 및 참고 목적이며, 실제 의료 진단이나 치료를 대체할 수 없습니다."""),
                 HumanMessage(content=f"환자 정보:\n{patient_info}\n\n위 환자 정보를 분석하여 결과를 제공해주세요.")
             ]
-
-            # AI 응답 받기
+            
+            # AI 호출 - 자동으로 BloodPressureInsight 형식으로 반환
             result = structured_llm.invoke(messages)
-
+            
             return {
                 'analysis_type': 'AI_분석',
                 'timestamp': datetime.now().isoformat(),
@@ -144,12 +147,13 @@ class LangChainBPProcessor:
                 'follow_up_needed': result.follow_up_needed,
                 'source': 'GPT-4o-mini'
             }
+            
         except Exception as e:
-            print(f'⚠️ AI 분석 중 오류 발생 : {e}')
+            print(f"⚠️ AI 분석 중 오류 발생: {e}")
             return self._fallback_individual_analysis(patient_data)
-        
-    # ============================================================
-    # 6. 데이터셋 전체 인사이트 분석
+
+	# ============================================================
+    # 3-3. 데이터셋 전체 인사이트 분석
     # ============================================================
     def analyze_dataset_insights(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -170,6 +174,7 @@ class LangChainBPProcessor:
         - 다차원 상관관계 해석
         - 임상적 의미 도출
         """
+        
         if not self.llm:
             return self._fallback_dataset_analysis(df)
         
@@ -189,7 +194,7 @@ class LangChainBPProcessor:
             # 데이터셋 기본 통계 생성
             # --------------------------------------------------
             dataset_summary = self._generate_dataset_summary(df)
-
+            
             # --------------------------------------------------
             # ✅ 프롬프트 메시지 (format_instructions 제거)
             # --------------------------------------------------
@@ -207,12 +212,12 @@ class LangChainBPProcessor:
     결과를 구조화된 형식으로 제공해주세요."""),
                 HumanMessage(content=f"데이터셋 요약:\n{dataset_summary}\n\n위 데이터를 분석하여 인사이트를 제공해주세요.")
             ]
-
+            
             # --------------------------------------------------
-            # AI 응답 받기
+            # ✅ AI 호출 - 자동으로 DatasetInsight 형식으로 반환
             # --------------------------------------------------
             result = structured_llm.invoke(messages)
-
+            
             return {
                 'analysis_type': 'Dataset_AI_분석',
                 'timestamp': datetime.now().isoformat(),
@@ -223,13 +228,13 @@ class LangChainBPProcessor:
                 'clinical_implications': result.clinical_implications,
                 'source': 'GPT-4o-mini'
             }
+            
         except Exception as e:
-            print(f'⚠️ 데이터셋 AI 분석 중 오류 발생 : {e}')
-            return self._fallback_dataset_analysis(df)
-        
-    
+            print(f"⚠️ 데이터셋 AI 분석 중 오류 발생: {e}")
+            return self._fallback_dataset_analysis(df)            
+
     # ============================================================
-    # 7. 개인 맞춤 건강 조언 생성
+    # 3-4. 개인 맞춤 건강 조언 생성
     # ============================================================
     def generate_health_advice(self, 
                              patient_data: Dict[str, Any],
@@ -254,11 +259,14 @@ class LangChainBPProcessor:
         - Output Format: 3-5개 핵심 포인트
         - Safety: 의료진 상담 권고 포함
         """
+        
         if not self.llm:
-            return self._fallback_health_advice(patient_data, prediction_result)    
+            return self._fallback_health_advice(patient_data, prediction_result)
         
         try:
-            # 7.1 프롬프트 작성 (구조화된 출력없이 자유 형식)
+            # --------------------------------------------------
+            # 3-4-1 프롬프트 작성 (구조화된 출력 없이 자유 형식)
+            # --------------------------------------------------
             messages = [
                 SystemMessage(content="""당신은 친근한 건강 상담사입니다.
                     환자의 정보와 혈압 예측 결과를 바탕으로 따뜻하고 실용적인 건강 조언을 제공합니다.
@@ -285,15 +293,19 @@ class LangChainBPProcessor:
 
                     개인 맞춤 건강 조언을 작성해 주세요.""")
             ]
-            # 7.2 AI 호출 및 결과 반환 (응답 받기)
+            
+            # --------------------------------------------------
+            # 3-4-2 AI 호출 및 결과 반환
+            # --------------------------------------------------
             response = self.llm.invoke(messages)
             return response.content
+            
         except Exception as e:
-            print(f'⚠️ 건강 조언 생성 중 오류 발생 : {e}')
-            return self._fallback_health_advice(patient_data, prediction_result)    
-        
+            print(f"⚠️ 건강 조언 생성 중 오류: {e}")
+            return self._fallback_health_advice(patient_data, prediction_result)
+
     # ============================================================
-    # 8. 헬퍼 메서드들
+    # 3-5. 헬퍼 메서드들
     # ============================================================
     
     def _format_patient_info(self, patient_data: Dict[str, Any]) -> str:
@@ -311,40 +323,41 @@ class LangChainBPProcessor:
          BMI: 26.1"
         """
         info_lines = []
-
+        
         # 기본 정보
         if 'age' in patient_data:
-            info_lines.append(f'나이: {patient_data["age"]}세')
+            info_lines.append(f"나이: {patient_data['age']}세")
         if 'gender' in patient_data:
-            info_lines.append(f'성별: {patient_data["gender"]}')
+            info_lines.append(f"성별: {patient_data['gender']}")
         if 'bmi' in patient_data:
-            info_lines.append(f'BMI: {patient_data["bmi"]}')
-
+            info_lines.append(f"BMI: {patient_data['bmi']}")
+        
         # 생활습관
         if 'smoking' in patient_data:
-            smoking_status = '흡연자' if patient_data["smoking"] else '비흡연자'
-            info_lines.append(f'흡연 상태: {smoking_status}')
+            smoking_status = "흡연자" if patient_data['smoking'] else "비흡연자"
+            info_lines.append(f"흡연 상태: {smoking_status}")
         if 'exercise_frequency' in patient_data:
-            info_lines.append(f'운동 빈도: 주 {patient_data["exercise_frequency"]}회')
+            info_lines.append(f"운동 빈도: 주 {patient_data['exercise_frequency']}회")
         if 'stress_level' in patient_data:
-            info_lines.append(f'스트레스 수준: {patient_data["stress_level"]}/10')
-
+            info_lines.append(f"스트레스 수준: {patient_data['stress_level']}/10")
+        
         # 건강 지표
         if 'heart_rate_bpm' in patient_data:
-            info_lines.append(f'심박수: {patient_data["heart_rate_bpm"]} bpm')
+            info_lines.append(f"심박수: {patient_data['heart_rate_bpm']} bpm")
         if 'systolic_bp' in patient_data and 'diastolic_bp' in patient_data:
-            info_lines.append(f'혈압: {patient_data["systolic_bp"]}/{patient_data["diastolic_bp"]} mmHg')
-
+            info_lines.append(f"현재 혈압: {patient_data['systolic_bp']}/{patient_data['diastolic_bp']} mmHg")
+        
         # 가족력
         family_history = []
         if patient_data.get('family_history_hypertension'):
-            family_history.append('고혈압')
+            family_history.append("고혈압")
         if patient_data.get('family_history_diabetes'):
-            family_history.append('당뇨병')
+            family_history.append("당뇨병")
         if family_history:
-            info_lines.append(f'가족력: {", ".join(family_history)}')
-
-        return '\n'.join(info_lines)
+            info_lines.append(f"가족력: {', '.join(family_history)}")
+        
+        return "\n".join(info_lines)
+    
     
     def _generate_dataset_summary(self, df: pd.DataFrame) -> str:
         """
@@ -359,41 +372,41 @@ class LangChainBPProcessor:
         - 주요 비율 (흡연율, 고혈압 유병률)
         """
         summary_lines = []
-
+        
         # 기본 정보
-        summary_lines.append(f'총 환자 수: {len(df)}명')
-
+        summary_lines.append(f"총 환자 수: {len(df)}")
+        
         # 연령 분포
         if 'age' in df.columns:
             summary_lines.append(
-                f'연령 범위: {df["age"].min()}~{df["age"].max()}세 '
-                f'(평균 {df["age"].mean():.1f}세)'
+                f"연령 범위: {df['age'].min()}-{df['age'].max()}세 "
+                f"(평균 {df['age'].mean():.1f}세)"
             )
         
         # 성별 분포
         if 'gender' in df.columns:
             gender_counts = df['gender'].value_counts()
-            summary_lines.append(f'성별 분포: {gender_counts.to_dict()}')
-
+            summary_lines.append(f"성별 분포: {gender_counts.to_dict()}")
+        
         # 혈압 통계
         if 'systolic_bp' in df.columns:
             summary_lines.append(
-                f'수축기 혈압 범위: {df["systolic_bp"].min()}~{df["systolic_bp"].max()} mmHg '
-                f'(평균 {df["systolic_bp"].mean():.1f} mmHg)'
+                f"수축기 혈압 범위: {df['systolic_bp'].min()}-{df['systolic_bp'].max()} mmHg "
+                f"(평균 {df['systolic_bp'].mean():.1f})"
             )
         
         # BMI 통계
         if 'bmi' in df.columns:
             summary_lines.append(
-                f'BMI 범위: {df["bmi"].min():.1f}~{df["bmi"].max():.1f} '
-                f'(평균 {df["bmi"].mean():.1f})'
+                f"BMI 범위: {df['bmi'].min():.1f}-{df['bmi'].max():.1f} "
+                f"(평균 {df['bmi'].mean():.1f})"
             )
-
+        
         # 흡연율
         if 'smoking' in df.columns:
-            smoking_rate = df['smoking'].mean() * 100
-            summary_lines.append(f'흡연율: {smoking_rate:.1f}%')
-
+            smoking_rate = (df['smoking'].sum() / len(df)) * 100
+            summary_lines.append(f"흡연율: {smoking_rate:.1f}%")
+        
         # 혈압 분류
         if 'systolic_bp' in df.columns and 'diastolic_bp' in df.columns:
             hypertension = ((df['systolic_bp'] >= 140) | (df['diastolic_bp'] >= 90)).sum()
@@ -408,10 +421,129 @@ class LangChainBPProcessor:
                 f"고혈압: {hypertension}명"
             )
         
-        return "\n".join(summary_lines)
-    
+        return "\n".join(summary_lines)            
+
     # ============================================================
-    # 9. Fallback 메서드들 (AI 사용 불가 시)
+    # 3-5. 헬퍼 메서드들
+    # ============================================================
+    
+    def _format_patient_info(self, patient_data: Dict[str, Any]) -> str:
+        """
+        환자 정보를 AI가 이해하기 쉬운 자연어 텍스트로 변환
+        
+        【목적】
+        딕셔너리 → 구조화된 텍스트 변환
+        
+        【변환 예시】
+        {'age': 45, 'gender': '남성', 'bmi': 26.1}
+        →
+        "나이: 45세
+         성별: 남성
+         BMI: 26.1"
+        """
+        info_lines = []
+        
+        # 기본 정보
+        if 'age' in patient_data:
+            info_lines.append(f"나이: {patient_data['age']}세")
+        if 'gender' in patient_data:
+            info_lines.append(f"성별: {patient_data['gender']}")
+        if 'bmi' in patient_data:
+            info_lines.append(f"BMI: {patient_data['bmi']}")
+        
+        # 생활습관
+        if 'smoking' in patient_data:
+            smoking_status = "흡연자" if patient_data['smoking'] else "비흡연자"
+            info_lines.append(f"흡연 상태: {smoking_status}")
+        if 'exercise_frequency' in patient_data:
+            info_lines.append(f"운동 빈도: 주 {patient_data['exercise_frequency']}회")
+        if 'stress_level' in patient_data:
+            info_lines.append(f"스트레스 수준: {patient_data['stress_level']}/10")
+        
+        # 건강 지표
+        if 'heart_rate_bpm' in patient_data:
+            info_lines.append(f"심박수: {patient_data['heart_rate_bpm']} bpm")
+        if 'systolic_bp' in patient_data and 'diastolic_bp' in patient_data:
+            info_lines.append(f"현재 혈압: {patient_data['systolic_bp']}/{patient_data['diastolic_bp']} mmHg")
+        
+        # 가족력
+        family_history = []
+        if patient_data.get('family_history_hypertension'):
+            family_history.append("고혈압")
+        if patient_data.get('family_history_diabetes'):
+            family_history.append("당뇨병")
+        if family_history:
+            info_lines.append(f"가족력: {', '.join(family_history)}")
+        
+        return "\n".join(info_lines)
+    
+    
+    def _generate_dataset_summary(self, df: pd.DataFrame) -> str:
+        """
+        데이터프레임의 주요 통계를 텍스트로 요약
+        
+        【목적】
+        AI에게 데이터셋의 전반적인 특성을 전달
+        
+        【포함 정보】
+        - 기본 통계 (평균, 범위)
+        - 분포 정보 (성별, 혈압 분류)
+        - 주요 비율 (흡연율, 고혈압 유병률)
+        """
+        summary_lines = []
+        
+        # 기본 정보
+        summary_lines.append(f"총 환자 수: {len(df)}")
+        
+        # 연령 분포
+        if 'age' in df.columns:
+            summary_lines.append(
+                f"연령 범위: {df['age'].min()}-{df['age'].max()}세 "
+                f"(평균 {df['age'].mean():.1f}세)"
+            )
+        
+        # 성별 분포
+        if 'gender' in df.columns:
+            gender_counts = df['gender'].value_counts()
+            summary_lines.append(f"성별 분포: {gender_counts.to_dict()}")
+        
+        # 혈압 통계
+        if 'systolic_bp' in df.columns:
+            summary_lines.append(
+                f"수축기 혈압 범위: {df['systolic_bp'].min()}-{df['systolic_bp'].max()} mmHg "
+                f"(평균 {df['systolic_bp'].mean():.1f})"
+            )
+        
+        # BMI 통계
+        if 'bmi' in df.columns:
+            summary_lines.append(
+                f"BMI 범위: {df['bmi'].min():.1f}-{df['bmi'].max():.1f} "
+                f"(평균 {df['bmi'].mean():.1f})"
+            )
+        
+        # 흡연율
+        if 'smoking' in df.columns:
+            smoking_rate = (df['smoking'].sum() / len(df)) * 100
+            summary_lines.append(f"흡연율: {smoking_rate:.1f}%")
+        
+        # 혈압 분류
+        if 'systolic_bp' in df.columns and 'diastolic_bp' in df.columns:
+            hypertension = ((df['systolic_bp'] >= 140) | (df['diastolic_bp'] >= 90)).sum()
+            prehypertension = (
+                ((df['systolic_bp'] >= 120) & (df['systolic_bp'] < 140)) |
+                ((df['diastolic_bp'] >= 80) & (df['diastolic_bp'] < 90))
+            ).sum()
+            normal = len(df) - hypertension - prehypertension
+            summary_lines.append(
+                f"혈압 분류 - 정상: {normal}명, "
+                f"고혈압전단계: {prehypertension}명, "
+                f"고혈압: {hypertension}명"
+            )
+        
+        return "\n".join(summary_lines)            
+
+    # ============================================================
+    # 3-6. Fallback 메서드들 (AI 사용 불가 시)
     # ============================================================
     """
     Graceful Degradation 패턴:
@@ -432,68 +564,68 @@ class LangChainBPProcessor:
         systolic = patient_data.get('systolic_bp', 120)
         diastolic = patient_data.get('diastolic_bp', 80)
         bmi = patient_data.get('bmi', 23)
-
+        
         # 위험도 점수 계산
         risk_score = 0
         risk_factors = []
-
+        
         # 혈압 수치 평가
-        if systolic >= 140 or diastolic >=90:
+        if systolic >= 140 or diastolic >= 90:
             risk_score += 3
-            risk_factors.append('고혈압 수치')
+            risk_factors.append("고혈압 수치")
         elif systolic >= 120 or diastolic >= 80:
             risk_score += 1
-            risk_factors.append('혈압 경계수치')
-
+            risk_factors.append("혈압 경계수치")
+        
         # 연령 평가
         if age >= 65:
             risk_score += 2
-            risk_factors.append('고령')
+            risk_factors.append("고령")
         elif age >= 45:
             risk_score += 1
-            risk_factors.append('중년')
-
+            risk_factors.append("중년")
+        
         # BMI 평가
         if bmi >= 30:
             risk_score += 2
-            risk_factors.append('비만')
+            risk_factors.append("비만")
         elif bmi >= 25:
             risk_score += 1
-            risk_factors.append('과체중')
-
+            risk_factors.append("과체중")
+        
         # 흡연 평가
         if patient_data.get('smoking', 0):
             risk_score += 2
-            risk_factors.append('흡연')
-
+            risk_factors.append("흡연")
+        
         # 가족력 평가
         if patient_data.get('family_history_hypertension', 0):
             risk_score += 1
-            risk_factors.append('고혈압 가족력')
-
+            risk_factors.append("고혈압 가족력")
+        
         # 위험도 분류
         if risk_score >= 6:
-            risk_level = '매우높음'
+            risk_level = "매우높음"
         elif risk_score >= 4:
-            risk_level = '높음'
+            risk_level = "높음"
         elif risk_score >= 2:
-            risk_level = '보통'
+            risk_level = "보통"
         else:
-            risk_level = '낮음'
-
+            risk_level = "낮음"
+        
         # 권장사항 생성
         recommendations = []
         if systolic >= 140:
-            recommendations.append('의료진 상담을 통한 혈압 관리')
+            recommendations.append("의료진 상담을 통한 혈압 관리")
         if bmi >= 25:
-            recommendations.append('체중 감량을 통한 BMI 정상화')
+            recommendations.append("체중 감량을 통한 BMI 정상화")
         if patient_data.get('exercise_frequency', 0) < 3:
-            recommendations.append('주 3회 이상 규칙적인 유산소 운동')
+            recommendations.append("주 3회 이상 규칙적인 유산소 운동")
         if patient_data.get('smoking', 0):
-            recommendations.append('금연')
-        recommendations.append('저나트륨 식단 실천')
-        recommendations.append('충분한 수면과 스트레스 관리')
-
+            recommendations.append("금연")
+        recommendations.append("저나트륨 식단 실천")
+        recommendations.append("충분한 수면과 스트레스 관리")
+        
         return {
             'analysis_type': '기본_분석',
             'timestamp': datetime.now().isoformat(),
@@ -505,6 +637,7 @@ class LangChainBPProcessor:
             'follow_up_needed': risk_score >= 4,
             'source': '기본_알고리즘'
         }
+    
     
     def _fallback_dataset_analysis(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -519,21 +652,21 @@ class LangChainBPProcessor:
         patterns = []
         highlights = []
         implications = []
-
+        
         # 상관관계 분석
         if 'age' in df.columns and 'systolic_bp' in df.columns:
             age_bp_corr = df['age'].corr(df['systolic_bp'])
-            patterns.append(f'연령과 수축기 혈압 상관관계: {age_bp_corr:.3f}')
+            patterns.append(f"연령과 수축기 혈압 상관관계: {age_bp_corr:.3f}")
         
         if 'bmi' in df.columns and 'systolic_bp' in df.columns:
             bmi_bp_corr = df['bmi'].corr(df['systolic_bp'])
-            patterns.append(f'BMI와 수축기 혈압 상관관계: {bmi_bp_corr:.3f}')
-
+            patterns.append(f"BMI와 수축기 혈압 상관관계: {bmi_bp_corr:.3f}")
+        
         # 성별 분석
         if 'gender' in df.columns and 'systolic_bp' in df.columns:
             gender_bp = df.groupby('gender')['systolic_bp'].mean()
-            patterns.append(f'성별 평균 수축기 혈압 차이 확인됨 {gender_bp}')
-
+            patterns.append(f"성별 평균 수축기 혈압 차이 확인됨")
+        
         # 고혈압 유병률
         if 'systolic_bp' in df.columns and 'diastolic_bp' in df.columns:
             hypertension_rate = ((df['systolic_bp'] >= 140) | (df['diastolic_bp'] >= 90)).mean() * 100
@@ -559,6 +692,7 @@ class LangChainBPProcessor:
             'clinical_implications': implications,
             'source': '기본_통계분석'
         }
+    
     
     def _fallback_health_advice(self, 
                                patient_data: Dict[str, Any],
@@ -608,96 +742,96 @@ class LangChainBPProcessor:
 
 print("✅ LangChainBPProcessor 클래스 정의 완료")
 
-# ============================================================
-# 시스템 테스트 - 프로세서 초기화
-# ============================================================
-# LangChain 혈압 AI 분석 시스템 테스트
-print("🧠 LangChain 혈압 AI 분석 시스템 테스트")
-print("=" * 50)
 
-# 프로세서 초기화
-processor = LangChainBPProcessor()
-print('\n프로세서 초기화 완료!')
+# # ============================================================
+# # 4. 시스템 테스트 - 프로세서 초기화
+# # ============================================================
+# # LangChain 혈압 AI 분석 시스템 테스트
+# print("🧠 LangChain 혈압 AI 분석 시스템 테스트")
+# print("=" * 50)
 
-# ============================================================
-# 테스트 1 - 개별 환자 AI 분석
-# ============================================================
-# 테스트용 환자 데이터
-test_patient = {
-    'age': 52,
-    'gender': '남성',
-    'bmi': 27.5,
-    'smoking': 1,
-    'exercise_frequency': 1,
-    'stress_level': 7,
-    'heart_rate_bpm': 82,
-    'family_history_hypertension': 1,
-    'systolic_bp': 145,
-    'diastolic_bp': 92
-}
+# # 프로세서 초기화
+# processor = LangChainBPProcessor()
+# print("\n✅ 프로세서 초기화 완료")
 
-# 개별 환자 AI 분석
-print('\n개별 환자 AI 분석:')
-analysis = processor.analyze_individual_bp(test_patient)
+# # ============================================================
+# # 5. 테스트 1 - 개별 환자 AI 분석
+# # ============================================================
+# # 테스트용 환자 데이터
+# test_patient = {
+#     'age': 52,
+#     'gender': '남성',
+#     'bmi': 27.5,
+#     'smoking': 1,
+#     'exercise_frequency': 1,
+#     'stress_level': 7,
+#     'heart_rate_bpm': 82,
+#     'family_history_hypertension': 1,
+#     'systolic_bp': 145,
+#     'diastolic_bp': 92
+# }
 
-print(analysis)
-print(f"\n분석 타입: {analysis['analysis_type']}")
-print(f"위험도: {analysis['risk_level']}")
-print(f"전반적 평가: {analysis['overall_assessment']}")
-print(f"\n주요 위험요인: {', '.join(analysis['key_risk_factors'])}")
-print(f"\n권장사항 ({len(analysis['recommendations'])}가지):")
-for i, rec in enumerate(analysis['recommendations'], 1):
-    print(f"  {i}. {rec}")
-print(f"\n생활습관 조언:\n{analysis['lifestyle_advice']}")
-print(f"\n추가 검진 필요: {'예' if analysis['follow_up_needed'] else '아니오'}")
-print(f"분석 출처: {analysis['source']}")
+# # 개별 환자 AI 분석
+# print("\n👤 개별 환자 AI 분석:")
+# analysis = processor.analyze_individual_bp(test_patient)
 
-# ============================================================
-# 테스트 2 - 개인 맞춤 건강 조언 생성
-# ============================================================
-print("\n💡 개인 맞춤 건강 조언:")
-print("=" * 50)
+# print(f"\n분석 타입: {analysis['analysis_type']}")
+# print(f"위험도: {analysis['risk_level']}")
+# print(f"전반적 평가: {analysis['overall_assessment']}")
+# print(f"\n주요 위험요인: {', '.join(analysis['key_risk_factors'])}")
+# print(f"\n권장사항 ({len(analysis['recommendations'])}가지):")
+# for i, rec in enumerate(analysis['recommendations'], 1):
+#     print(f"  {i}. {rec}")
+# print(f"\n생활습관 조언:\n{analysis['lifestyle_advice']}")
+# print(f"\n추가 검진 필요: {'예' if analysis['follow_up_needed'] else '아니오'}")
+# print(f"분석 출처: {analysis['source']}")
 
-prediction_result = {
-    'systolic_bp': 145.0,
-    'diastolic_bp': 92.0
-}
+# # ============================================================
+# # 6. 테스트 2 - 개인 맞춤 건강 조언 생성
+# # ============================================================
+# print("\n💡 개인 맞춤 건강 조언:")
+# print("=" * 50)
 
-advice = processor.generate_health_advice(test_patient, prediction_result)
-print(advice)
+# prediction_result = {
+#     'systolic_bp': 145.0,
+#     'diastolic_bp': 92.0
+# }
 
-# ============================================================
-# 테스트 3 - 데이터셋 AI 인사이트
-# ============================================================
-# 실제 데이터셋 로드
-try:
-    df = pd.read_csv('all_patient_features_preprocessed.csv')
-    print(f"\n\n✅ 데이터셋 로드 완료: {len(df)}명의 환자 데이터")
-    sample_df = df.sample(n=min(100, len(df)), random_state=42)
-except FileNotFoundError:
-    print("⚠️ 데이터셋 파일을 찾을 수 없습니다. 테스트 데이터로 대체합니다.")
-    sample_df = pd.DataFrame([test_patient] * 100)
+# advice = processor.generate_health_advice(test_patient, prediction_result)
+# print(advice)
 
-# 데이터셋 AI 인사이트
-print("\n📊 데이터셋 AI 인사이트:")
-print("=" * 50)
+# # ============================================================
+# # 7. 테스트 3 - 데이터셋 AI 인사이트
+# # ============================================================
+# # 실제 데이터셋 로드
+# try:
+#     df = pd.read_csv('all_patient_features_preprocessed.csv')
+#     print(f"✅ 데이터셋 로드 완료: {len(df)}명의 환자 데이터")
+#     sample_df = df.sample(n=min(100, len(df)), random_state=42)
+# except FileNotFoundError:
+#     print("⚠️ 데이터셋 파일을 찾을 수 없습니다. 테스트 데이터로 대체합니다.")
+#     sample_df = pd.DataFrame([test_patient] * 100)
 
-dataset_analysis = processor.analyze_dataset_insights(sample_df)
+# # 데이터셋 AI 인사이트
+# print("\n📊 데이터셋 AI 인사이트:")
+# print("=" * 50)
 
-print(f"\n분석 타입: {dataset_analysis['analysis_type']}")
-print(f"분석된 환자 수: {dataset_analysis['total_patients']}")
-print(f"\n전체 요약:\n{dataset_analysis['summary']}")
+# dataset_analysis = processor.analyze_dataset_insights(sample_df)
 
-print(f"\n주요 패턴:")
-for i, pattern in enumerate(dataset_analysis['key_patterns'], 1):
-    print(f"  {i}. {pattern}")
+# print(f"\n분석 타입: {dataset_analysis['analysis_type']}")
+# print(f"분석된 환자 수: {dataset_analysis['total_patients']}")
+# print(f"\n전체 요약:\n{dataset_analysis['summary']}")
 
-print(f"\n통계적 주요점:")
-for i, highlight in enumerate(dataset_analysis['statistical_highlights'], 1):
-    print(f"  {i}. {highlight}")
+# print(f"\n주요 패턴:")
+# for i, pattern in enumerate(dataset_analysis['key_patterns'], 1):
+#     print(f"  {i}. {pattern}")
 
-print(f"\n임상적 의미:")
-for i, implication in enumerate(dataset_analysis['clinical_implications'], 1):
-    print(f"  {i}. {implication}")
+# print(f"\n통계적 주요점:")
+# for i, highlight in enumerate(dataset_analysis['statistical_highlights'], 1):
+#     print(f"  {i}. {highlight}")
 
-print(f"\n분석 출처: {dataset_analysis['source']}")
+# print(f"\n임상적 의미:")
+# for i, implication in enumerate(dataset_analysis['clinical_implications'], 1):
+#     print(f"  {i}. {implication}")
+
+# print(f"\n분석 출처: {dataset_analysis['source']}")
